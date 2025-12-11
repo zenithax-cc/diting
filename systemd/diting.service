@@ -1,0 +1,14 @@
+# systemd/hardware-collector.service
+[Unit]
+Description=Hardware Information Collector
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hardware-collector-client -c /etc/hardware-collector/config.yaml
+Restart=on-failure
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

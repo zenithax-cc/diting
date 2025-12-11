@@ -1,0 +1,20 @@
+# configs/config.yaml
+client:
+  interval: 5m
+  cache_dir: /var/cache/hardware-collector
+
+kafka:
+  brokers:
+    - localhost:9092
+  topic: hardware-info
+  timeout: 10s
+
+logger:
+  log_file: /var/log/hardware-collector/collector.log
+  max_size: 100
+  max_backups: 7
+  level: info
+
+resource:
+  max_memory_mb: 90
+  cpu_cores: 1
