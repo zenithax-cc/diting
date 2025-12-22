@@ -6,11 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"strings"
 	"time"
 )
 
-const Timeout = 20 * time.Minute
+const DefaultTimeout = 20 * time.Minute
 
 var (
 	ErrEmptyCommand = errors.New("empty command")
@@ -29,7 +28,7 @@ type executor struct{}
 
 // Execute execute the named program with the given arguments,default timeout 20 minutes
 func Execute(name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()
 
 	return ExecutorWithContext(ctx, name, args...)
@@ -39,8 +38,21 @@ func Execute(name string, args ...string) ([]byte, error) {
 func ExecutorWtihTimeout(timeout time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-
 	return ExecutorWithContext(ctx, name, args...)
+}
+
+func ExecuteShell(cmd string) ([]byte, error) {
+	if cmd == "" {
+		return nil, ErrEmptyCommand
+	}
+	return Execute("bash", "-c", cmd)
+}
+
+func ExecuteShellWithTimeout(timeout time.Duration, cmd string) ([]byte, error) {
+	if cmd == "" {
+		return nil, ErrEmptyCommand
+	}
+	return ExecutorWtihTimeout(timeout, "bash", "-c", cmd)
 }
 
 // ExecutorWithContext is like [Exeute] but includes a context.
@@ -50,16 +62,7 @@ func ExecutorWithContext(ctx context.Context, name string, args ...string) ([]by
 		return nil, ErrEmptyCommand
 	}
 
-	if ctx == nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), Timeout)
-		defer cancel()
-	}
-
-	argString := strings.Join(args, " ")
-	cmds := []string{name, argString}
-
-	cmd := exec.CommandContext(ctx, "bash -c ", cmds...)
+	cmd := exec.CommandContext(ctx, name, args...)
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -73,16 +76,10 @@ func ExecutorWithContext(ctx context.Context, name string, args ...string) ([]by
 
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
-		err = ErrTimeOut
+		return buf.Bytes(), fmt.Errorf("%w: %w", ErrTimeOut, err)
 	case errors.Is(err, context.Canceled):
-		err = ErrCanceled
+		return buf.Bytes(), fmt.Errorf("%w: %w", ErrCanceled, err)
 	default:
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			err = ErrExit
-		}
+		return buf.Bytes(), fmt.Errorf("%w: %w", ErrExit, err)
 	}
-
-	return buf.Bytes(), fmt.Errorf("%w : %v", err, cmds)
 }
-
