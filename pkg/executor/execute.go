@@ -18,27 +18,19 @@ var (
 	ErrExit         = errors.New("command exited with error")
 )
 
-type Executor interface {
-	Execute(cmd string, args ...string) ([]byte, error)
-	ExecutorWtihTimeout(timeout time.Duration, cmd string, args ...string) ([]byte, error)
-	ExecutorWithContext(ctx context.Context, cmd string, args ...string) ([]byte, error)
-}
-
-type executor struct{}
-
 // Execute execute the named program with the given arguments,default timeout 20 minutes
 func Execute(name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()
 
-	return ExecutorWithContext(ctx, name, args...)
+	return ExecuteWithContext(ctx, name, args...)
 }
 
-// ExecutorWtihTimeout is like [Execute],can custom timeout
-func ExecutorWtihTimeout(timeout time.Duration, name string, args ...string) ([]byte, error) {
+// ExecuteWtihTimeout is like [Execute],can custom timeout
+func ExecuteWtihTimeout(timeout time.Duration, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return ExecutorWithContext(ctx, name, args...)
+	return ExecuteWithContext(ctx, name, args...)
 }
 
 func ExecuteShell(cmd string) ([]byte, error) {
@@ -52,14 +44,18 @@ func ExecuteShellWithTimeout(timeout time.Duration, cmd string) ([]byte, error) 
 	if cmd == "" {
 		return nil, ErrEmptyCommand
 	}
-	return ExecutorWtihTimeout(timeout, "bash", "-c", cmd)
+	return ExecuteWtihTimeout(timeout, "bash", "-c", cmd)
 }
 
 // ExecutorWithContext is like [Exeute] but includes a context.
 // if the context is nil, it will be replaced with [context.WithTimeout] with a default timeout of 20 minutes.
-func ExecutorWithContext(ctx context.Context, name string, args ...string) ([]byte, error) {
+func ExecuteWithContext(ctx context.Context, name string, args ...string) ([]byte, error) {
 	if name == "" {
 		return nil, ErrEmptyCommand
+	}
+
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
 	}
 
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -70,16 +66,17 @@ func ExecutorWithContext(ctx context.Context, name string, args ...string) ([]by
 
 	err := cmd.Run()
 
-	if err == nil {
-		return buf.Bytes(), nil
+	var exitErr error
+	if err != nil {
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			exitErr = fmt.Errorf("%s: %w", ErrTimeOut, err)
+		case errors.Is(ctx.Err(), context.Canceled):
+			exitErr = fmt.Errorf("%s: %w", ErrCanceled, err)
+		default:
+			exitErr = fmt.Errorf("%s: %w", ErrExit, err)
+		}
 	}
 
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		return buf.Bytes(), fmt.Errorf("%w: %w", ErrTimeOut, err)
-	case errors.Is(err, context.Canceled):
-		return buf.Bytes(), fmt.Errorf("%w: %w", ErrCanceled, err)
-	default:
-		return buf.Bytes(), fmt.Errorf("%w: %w", ErrExit, err)
-	}
+	return buf.Bytes(), exitErr
 }
